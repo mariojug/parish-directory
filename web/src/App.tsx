@@ -20,6 +20,7 @@ const newMember = (isPrimary = false): Member => ({
 });
 
 const initialState = (): FormState => ({
+  submissionId: crypto.randomUUID(),
   householdName: '',
   firstName: '',
   lastName: '',

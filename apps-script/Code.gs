@@ -31,6 +31,8 @@ const MAX_MEMBERS = 20;
 const MAX_LIST_ITEMS = 40;
 const MAX_PHOTO_BASE64 = 7 * 1024 * 1024; // ~5 MB decoded
 const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/png'];
+const MAX_SUBMISSION_ID = 64;
+const DEDUPE_SECONDS = 6 * 60 * 60; // how long a re-submit of the same form is ignored (cache max)
 
 /** Run once from the editor: creates tabs, headers, and the private photo folder. */
 function setup() {
@@ -98,10 +100,11 @@ function doPost(e) {
       ];
     });
 
-    if (!writeRows_(householdRow, memberRows)) {
+    const savedId = writeRows_(str_(data.submissionId), householdId, householdRow, memberRows);
+    if (!savedId) {
       return json_({ ok: false, error: 'The server is busy. Please try again in a moment.' });
     }
-    return json_({ ok: true, householdId: householdId });
+    return json_({ ok: true, householdId: savedId });
   } catch (err) {
     console.error(err);
     return json_({ ok: false, error: 'Something went wrong saving your information. Please try again.' });
@@ -111,12 +114,23 @@ function doPost(e) {
 /**
  * Appends one submission under the script lock, so concurrent submissions can't
  * interleave or overwrite each other's rows. Keep this section short: only Sheet writes.
- * Returns false if the lock couldn't be acquired.
+ *
+ * If this submissionId was already saved (the browser retried because the reply got
+ * lost), nothing is written and the original household ID is returned instead.
+ * Returns the household ID, or null if the lock couldn't be acquired.
  */
-function writeRows_(householdRow, memberRows) {
+function writeRows_(submissionId, householdId, householdRow, memberRows) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = submissionId ? 'sub:' + submissionId : null;
+
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(30000)) return false;
+  if (!lock.tryLock(30000)) return null;
   try {
+    if (cacheKey) {
+      const seen = cache.get(cacheKey);
+      if (seen) return seen;
+    }
+
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     ensureSheet_(ss, HOUSEHOLDS_SHEET, HOUSEHOLD_HEADERS).appendRow(householdRow);
     if (memberRows.length) {
@@ -127,7 +141,8 @@ function writeRows_(householdRow, memberRows) {
     // Commit pending writes before releasing, or the next request can read a stale getLastRow()
     // and overwrite these member rows.
     SpreadsheetApp.flush();
-    return true;
+    if (cacheKey) cache.put(cacheKey, householdId, DEDUPE_SECONDS);
+    return householdId;
   } finally {
     lock.releaseLock();
   }
@@ -140,6 +155,7 @@ function validate_(d) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str_(d.email))) errors.push('A valid email is required.');
   if (!str_(d.contactMethod)) errors.push('Preferred contact method is required.');
   if (!d.consentDirectory) errors.push('Directory consent is required.');
+  if (str_(d.submissionId).length > MAX_SUBMISSION_ID) errors.push('Invalid submission ID.');
 
   if (d.members && !Array.isArray(d.members)) errors.push('Invalid household members.');
   (d.members || []).forEach(function (m, i) {

@@ -25,6 +25,7 @@ export interface Photo {
 }
 
 export interface FormState {
+  submissionId: string; // lets the server ignore a re-submit of the same form
   householdName: string;
   firstName: string;
   lastName: string;

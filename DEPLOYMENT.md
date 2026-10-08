@@ -59,7 +59,7 @@ npm run dev        # http://localhost:5173
    - [ ] The Sheet has a **Households** tab and a **Members** tab, each with a bold, frozen header row.
    - [ ] Drive has a `Parish Directory Photos` folder, and it's private.
 
-> ⚠️ **If `setup` fails** with *"You do not have permission to call DriveApp… Required permissions: …/auth/drive"*, Apps Script didn't accept the narrow `drive.file` scope for `DriveApp`. In `appsscript.json`, change `https://www.googleapis.com/auth/drive.file` to `https://www.googleapis.com/auth/drive`. Re-run `setup` and re-authorize, then update the scope note in README. Record what happened, because PROD will behave the same way.
+> ℹ️ **About the Drive permission.** The consent screen asks for full Google Drive access (*"See, edit, create, and delete all of your Google Drive files"*). That's because `DriveApp` won't run under the narrower `drive.file` scope; `setup` fails with *"You do not have permission to call DriveApp"*. The script only ever creates the photo folder and saves photos into it, and it runs as the parish account, so nobody else gains Drive access. Be ready to explain this to the client when they authorize PROD.
 
 ### 2.3 Deploy as a web app
 1. **Deploy → New deployment → ⚙ → Web app.**
@@ -105,6 +105,7 @@ curl -sL -H 'Content-Type: text/plain' --data @/tmp/payload.json "$TEST_EXEC_URL
 | B3 | Honeypot | set `"website": "spam"` | `ok:true` but **no** rows added |
 | B4 | Bad JSON | `curl -sL --data 'garbage' "$TEST_EXEC_URL"` | `{"ok":false,"error":"Invalid request."}` |
 | B5 | Leading zeros | check the B1 row | ZIP shows **02134**, not 2134 (see Known issues #1) |
+| B7 | Re-submit is ignored | add `"submissionId": "test-123"` to the payload and POST it **twice** | Both replies say `ok:true` with the **same** `householdId`. Only **one** household row and one member row are added. (A repeat is ignored for 6 hours.) |
 | B6 | Concurrent load | see below | No lost, duplicated, or overwritten rows |
 
 Check **Extensions → Apps Script → Executions**: each call should appear, with no failed runs except the ones you expected.
@@ -206,7 +207,7 @@ Settle these **before** touching their account:
 Do this **signed in as the parish account**. Have the client drive on a screen share, or use credentials they give you temporarily. Don't build it in your account and transfer it.
 
 1. Repeat **2.1 → 2.3** exactly, with the Sheet named `Parish Directory`.
-2. If you hit the `drive.file` → `drive` scope issue in TEST, use the same fix here.
+2. The consent screen will ask for full Drive access (see the note in 2.2). Tell the client why before they click.
 3. Save the `/exec` URL as `PROD_EXEC_URL`, and store it somewhere the client can find it.
 4. Run **B1** (curl health check plus one valid POST). Then **delete** that test row, its member rows, and anything in the photo folder.
 
@@ -256,6 +257,7 @@ Saving code in the editor does **not** change the live `/exec` behavior. Only a 
 |---|---|---|
 | "This form is not connected yet" on the live site | `VITE_APPS_SCRIPT_URL` missing at build time | Set the env var, then **Clear cache and deploy** |
 | "Something went wrong. Please try again." with no row added | Response wasn't JSON. Usually access isn't "Anyone", or the script needs re-authorization | `curl -sL "$EXEC_URL"`. If it returns a Google sign-in HTML page, fix access in Manage deployments. Re-run `setup` to re-authorize |
+| "Something went wrong" **but the row was added** | The reply got lost on its way back to the browser. Seen with ad blockers (uBlock Origin Lite) blocking the redirect to `script.googleusercontent.com`, and on a cold start | The form retries once on its own, and the server ignores a repeat of the same form, so no duplicates. If it still fails, check DevTools → Network for a blocked request to `script.googleusercontent.com` and allow-list that domain in the blocker |
 | "Something went wrong saving your information" | Script threw inside `doPost` | Apps Script → **Executions** → open the failed run |
 | `FOLDER_ID not set — run setup() first` | `setup` never ran in this script | Run `setup` |
 | Code change has no effect | Saved but not redeployed | Manage deployments → New version |
@@ -270,7 +272,7 @@ Saving code in the editor does **not** change the live `/exec` behavior. Only a 
 2. **Workspace accounts may not allow "Anyone" web apps.** This is a client-side admin setting (see 5.1). It's the biggest risk to PROD.
 3. **Node version isn't pinned for Netlify.** Vite 8 needs Node ≥ 20.19 / 22.12. Add `[build.environment] NODE_VERSION = "22"` to `netlify.toml`, or set it in the Netlify UI.
 4. **The honeypot fails silently.** If a browser autofills the hidden `website` field, the user sees "Thank you!" but nothing is saved. Low likelihood. F14 covers it.
-5. **`drive.file` scope with `DriveApp`.** This is the narrowest scope, but confirm `setup` works with it (2.2). Fall back to `drive` if it doesn't.
+5. **Full Drive scope.** Confirmed in TEST: `DriveApp` fails under `drive.file`, so the manifest uses the full `drive` scope. The script still only touches the photo folder, but the consent screen looks broad. If the client objects, the alternative is to replace `DriveApp` with the Drive REST API via `UrlFetchApp`, which does work with `drive.file`. That's more code and more to maintain.
 6. **The server doesn't enforce the Phone/Mail conditional rules.** Only the browser does. This is harmless, just inconsistent.
 7. **Orphan photos.** The photo is saved *before* the Sheet lock, so slow Drive uploads don't hold up other submissions. If the Sheet write then fails or the server is busy, the photo stays in Drive without a row. This is rare, and you can clean it up by hand. Match the Household ID in the filename against the Households tab.
 8. **The endpoint is public by design.** Anyone who reads the JS bundle can POST to `/exec`. There's no rate limiting beyond the honeypot. That's acceptable at parish scale. Watch for spam rows.

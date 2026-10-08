@@ -18,6 +18,7 @@ export async function submitRegistration(form: FormState): Promise<void> {
   );
 
   const payload = {
+    submissionId: form.submissionId,
     householdName: form.householdName,
     firstName: form.firstName,
     lastName: form.lastName,
@@ -32,20 +33,32 @@ export async function submitRegistration(form: FormState): Promise<void> {
     website: form.website,
   };
 
+  const body = JSON.stringify(payload);
+
+  // Apps Script answers with a redirect; the second hop occasionally gets dropped
+  // (ad blockers, cold starts). The server dedupes on submissionId, so retrying is safe.
+  let data = await post(body);
+  if (data === null) data = await post(body);
+  if (!data?.ok) {
+    throw new Error(data?.error || 'Something went wrong. Please try again.');
+  }
+}
+
+type Reply = { ok?: boolean; error?: string };
+
+/** Returns the parsed reply, or null if the reply was unreadable (worth one retry). */
+async function post(body: string): Promise<Reply | null> {
   let res: Response;
   try {
-    res = await fetch(ENDPOINT, {
+    res = await fetch(ENDPOINT!, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload),
+      body,
       redirect: 'follow',
     });
   } catch {
     throw new Error('Could not reach the server. Please check your connection and try again.');
   }
-
-  const data = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
-  if (!res.ok || !data?.ok) {
-    throw new Error(data?.error || 'Something went wrong. Please try again.');
-  }
+  if (!res.ok) return null;
+  return (await res.json().catch(() => null)) as Reply | null;
 }

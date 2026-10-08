@@ -18,7 +18,7 @@ React form (Netlify, free)  ──POST──▶  Google Apps Script web app  ─
 | `web/` | Vite + React + TypeScript form |
 | `web/src/fields.ts` | **Parish-editable settings**: parish name, ministries list, skills list, privacy text |
 | `apps-script/Code.gs` | Backend: validation, honeypot, photo save, row append |
-| `apps-script/appsscript.json` | Apps Script manifest (web app + minimal OAuth scopes) |
+| `apps-script/appsscript.json` | Apps Script manifest (web app settings + OAuth scopes) |
 | `netlify.toml` | Netlify build config (builds `web/`) |
 
 ## Local development
@@ -61,4 +61,4 @@ First/Last Name, Relationship, Career / Occupation, Church Activities, Services 
 - Values that begin with `= + - @` are escaped, so they can't run as spreadsheet formulas.
 - The browser shrinks photos to 1200px JPEG (~200–400 KB) before upload.
 - `LockService` serializes writes, so simultaneous submissions don't collide.
-- OAuth scopes are limited to *this spreadsheet* and *files the script created* (`drive.file`).
+- OAuth scopes: *this spreadsheet only* (`spreadsheets.currentonly`) and Google Drive (`drive`). The full Drive scope is needed because `DriveApp` doesn't run under the narrower `drive.file`; the script only creates the photo folder and saves photos into it.
